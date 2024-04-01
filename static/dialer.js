@@ -9,9 +9,9 @@ if (typeof WebSocket === 'undefined') {
 let downSocketUrl;
 
 if (typeof location === 'undefined') {
-  downSocketUrl = 'ws://localhost:3000/browser';
+  downSocketUrl = 'ws://localhost:3000/minidialer/socket';
 } else {
-  downSocketUrl = `ws://${location.host}/browser`;
+  downSocketUrl = `ws://${location.host}/minidialer/socket`;
 }
 
 let numConns = 0;

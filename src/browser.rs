@@ -6,7 +6,8 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
-    response::Html,
+    http::Uri,
+    response::{Html, Redirect},
     routing::{any, get},
     Router,
 };
@@ -25,9 +26,13 @@ pub async fn main(args: BrowserCli) {
     };
 
     let app = Router::new()
-        .route("/", get(root))
+        .route("/minidialer/", get(root))
         .route(
-            "/dialer.js",
+            "/minidialer",
+            get(|| async { Redirect::temporary("/minidialer/") }),
+        )
+        .route(
+            "/minidialer/dialer.js",
             get(|| async {
                 (
                     [("Content-Type", "application/javascript")],
@@ -36,17 +41,14 @@ pub async fn main(args: BrowserCli) {
             }),
         )
         .route(
-            "/browser",
+            "/minidialer/socket",
             any(|state, ws: WebSocketUpgrade| async {
                 ws.on_upgrade(|ws| browser_handler(state, ws))
             }),
         )
-        .route(
-            "/client",
-            any(|state, ws: WebSocketUpgrade| async {
-                ws.on_upgrade(|ws| client_handler(state, ws))
-            }),
-        )
+        .fallback(|state, uri, ws: WebSocketUpgrade| async {
+            ws.on_upgrade(|ws| client_handler(state, uri, ws))
+        })
         .with_state(state);
 
     let addr = format!("{}:{}", args.common.host, args.common.port);
@@ -67,7 +69,7 @@ async fn root() -> Html<&'static str> {
     Html(
         r#"
 <!DOCTYPE html>
-<script src=/dialer.js></script>
+<script src=dialer.js></script>
 "#,
     )
 }
@@ -89,7 +91,7 @@ async fn browser_handler(State(state): State<AppState>, socket: WebSocket) {
     mirror_websocket(get_pipe, socket, "browser_handler").await;
 }
 
-async fn client_handler(State(state): State<AppState>, socket: WebSocket) {
+async fn client_handler(State(state): State<AppState>, uri: Uri, socket: WebSocket) {
     let get_pipe = || async {
         loop {
             let (sender, receiver) = state.browser_listen_queue_out.recv().await.unwrap();
@@ -98,7 +100,17 @@ async fn client_handler(State(state): State<AppState>, socket: WebSocket) {
                 state.browser_listen_queue_out.len()
             );
 
-            let Ok(_) = sender.send(Message::Text(state.upstream.clone())).await else {
+            let dialer_url = format!(
+                "{}{}",
+                state.upstream,
+                uri.path_and_query()
+                    .map(|x| x.as_str())
+                    .unwrap_or_else(|| uri.path())
+            );
+
+            tracing::debug!("dialing {}", dialer_url);
+
+            let Ok(_) = sender.send(Message::Text(dialer_url)).await else {
                 tracing::debug!("channel broke while trying to dial, dropping");
                 continue;
             };

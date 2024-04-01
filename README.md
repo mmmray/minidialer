@@ -42,15 +42,14 @@ Requirements:
 
 Steps:
 
-1. Run `minidialer browser wss://example.com/mypath`, if `path=/mypath` and
-   `server=example.com` in your config
-2. Change the v2ray client to connect to `ws://localhost:3000/client` instead
+1. Run `minidialer browser wss://example.com`
+2. Change the v2ray client to connect to `ws://localhost:3000/mypath` instead
    of `wss://example.com/mypath`. **Turn off TLS on the client**, it will be
    added by minidialer.
-3. Open a browser to `http://localhost:3000`, for example:
+3. Open a browser to `http://localhost:3000/minidialer/`, for example:
 
    ```
-   chromium-browser --headless=new  http://localhost:3000/
+   chromium-browser --headless=new http://localhost:3000/minidialer/
    ```
 
 As a result, the traffic flow changes from this:
