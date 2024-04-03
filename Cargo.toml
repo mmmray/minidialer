@@ -6,9 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.81"
 async-channel = "2.2.0"
 axum = { version = "0.7.5", features = ["ws", "tokio", "tracing", "http1", "tower-log"], default-features = false }
 clap = { version = "4.5.4", features = ["derive"] }
+libc = "0.2.153"
 tokio = { version = "1.36.0", features = ["sync", "rt-multi-thread", "process"] }
 tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

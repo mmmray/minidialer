@@ -107,6 +107,31 @@ Steps:
 3. Tweak the `openssl` command to change the fingerprint, for example add `-cipher TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305,ECDHE-RSA-AES128-SHA,ECDHE-RSA-AES256-SHA,AES128-GCM-SHA256,AES256-GCM-SHA384,AES128-SHA,AES256-SHA`
 4. Or switch to `boringssl`, or to a script that randomly switches between multiple commands.
 
+## Curl Dialer (websocket-only)
+
+The curl dialer is a websocket reverse proxy that uses curl's experimental
+websocket support to connect to the server.
+
+This can be used to manipulate the TLS fingerprint using
+[curl-impersonate](https://github.com/lwthiker/curl-impersonate).
+
+Requirements:
+
+* Have a websocket tunnel at `wss://example.com/mypath`
+
+Steps:
+
+1. Run `minidialer curl wss://example.com`
+2. Change v2ray to connect to `ws://localhost:3000` instead of `wss://example.com`
+3. To actually obfuscate the fingerprint, use [`LD_PRELOAD` to inject curl-impersonate](https://github.com/lwthiker/curl-impersonate):
+
+   ```
+   export RUST_LOG=debug  # to see some noise on console
+   export LD_PRELOAD=$HOME/Downloads/libcurl-impersonate-chrome.so  # download from https://github.com/lwthiker/curl-impersonate
+   export CURL_IMPERSONATE=chrome116  # see https://github.com/lwthiker/curl-impersonate for possible values
+   target/release/minidialer curl wss://example.com
+   ```
+
 ## Future ideas
 
 * Integrate chromium network stack or other ideas from naiveproxy -- should be
