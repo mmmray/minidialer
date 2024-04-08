@@ -136,8 +136,6 @@ Steps:
 
 * Integrate chromium network stack or other ideas from naiveproxy -- should be
   easier than in v2ray because it's not Golang
-* Integrate curl-impersonate -- Unsure how useful it is, raw TCP-in-TLS is not
-  possible, the websocket support in curl is not complete. Meek-only?
 * Port performance improvements to xray's browser dialer... once I have figured
   out _why_ minidialer is faster.
 * Provide docker container with headless chrome, `node` and `openssl` bundled.
