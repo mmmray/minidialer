@@ -123,12 +123,12 @@ Steps:
 
 1. Run `minidialer curl wss://example.com`
 2. Change v2ray to connect to `ws://localhost:3000` instead of `wss://example.com`
-3. To actually obfuscate the fingerprint, use [`LD_PRELOAD` to inject curl-impersonate](https://github.com/lwthiker/curl-impersonate):
+3. To actually obfuscate the fingerprint, use [`LD_PRELOAD` to inject curl-impersonate](https://github.com/lwthiker/curl-impersonate?tab=readme-ov-file#using-curl_impersonate-env-var):
 
    ```
    export RUST_LOG=debug  # to see some noise on console
-   export LD_PRELOAD=$HOME/Downloads/libcurl-impersonate-chrome.so  # download from https://github.com/lwthiker/curl-impersonate
-   export CURL_IMPERSONATE=chrome116  # see https://github.com/lwthiker/curl-impersonate for possible values
+   export LD_PRELOAD=$HOME/Downloads/libcurl-impersonate-chrome.so  # download from https://github.com/lwthiker/curl-impersonate/releases
+   export CURL_IMPERSONATE=chrome116  # see https://github.com/lwthiker/curl-impersonate?tab=readme-ov-file#supported-browsers for possible values
    target/release/minidialer curl wss://example.com
    ```
 
