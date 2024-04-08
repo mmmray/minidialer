@@ -212,7 +212,7 @@ async fn curl_handler(State(state): State<AppState>, uri: Uri, mut socket: WebSo
             }
         } else {
             let mut bytes_received: size_t = 0;
-            let mut buffer: [u8; 256] = [0; 256];
+            let mut buffer: [u8; 2048] = [0; 2048];
 
             tracing::debug!("curl_ws_recv");
             // XXX: this hangs after the connection is terminated by the server
