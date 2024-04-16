@@ -107,7 +107,7 @@ Steps:
 3. Tweak the `openssl` command to change the fingerprint, for example add `-cipher TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305,ECDHE-RSA-AES128-SHA,ECDHE-RSA-AES256-SHA,AES128-GCM-SHA256,AES256-GCM-SHA384,AES128-SHA,AES256-SHA`
 4. Or switch to `boringssl`, or to a script that randomly switches between multiple commands.
 
-## Curl Dialer (websocket-only)
+## Curl WebSocket Dialer
 
 The curl dialer is a websocket reverse proxy that uses curl's experimental
 websocket support to connect to the server.
@@ -121,7 +121,7 @@ Requirements:
 
 Steps:
 
-1. Run `minidialer curl wss://example.com`
+1. Run `minidialer curl-ws wss://example.com`
 2. Change v2ray to connect to `ws://localhost:3000` instead of `wss://example.com`
 3. To actually obfuscate the fingerprint, use [`LD_PRELOAD` to inject curl-impersonate](https://github.com/lwthiker/curl-impersonate?tab=readme-ov-file#using-curl_impersonate-env-var):
 
@@ -131,6 +131,26 @@ Steps:
    export CURL_IMPERSONATE=chrome116  # see https://github.com/lwthiker/curl-impersonate?tab=readme-ov-file#supported-browsers for possible values
    target/release/minidialer curl wss://example.com
    ```
+
+## Curl TCP Dialer
+
+The curl TCP dialer is similar to the curl WebSocket dialer, except it is a TCP
+reverse proxy that uses curl only for establishing a TLS connection.
+
+The inner payload, be it simple HTTP, WebSocket, raw VLESS or any other
+protocol, is transmitted as-is. This means that HTTP headers such as User-Agent
+are not rewritten using `curl-impersonate`.
+
+Requirements:
+
+* Have some kind of TCP-based server.
+
+Steps:
+
+1. Run `minidialer curl-tcp example.com:443`
+2. Change v2ray to connect to `ws://localhost:3000` instead of
+   `wss://example.com` (in case of websocket, adapt for other protocols)
+3. Follow the Curl WebSocket Dialer docs to customize the TLS fingerprint.
 
 ## Future ideas
 

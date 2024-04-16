@@ -19,7 +19,8 @@ struct Cli {
 enum CliSubcommand {
     Browser(BrowserCli),
     Command(CommandCli),
-    Curl(CurlCli),
+    CurlWs(CurlWsCli),
+    CurlTcp(CurlTcpCli),
 }
 
 #[derive(Args, Debug)]
@@ -40,9 +41,32 @@ struct CommandCli {
 }
 
 #[derive(Args, Debug)]
-struct CurlCli {
+struct CurlWsCli {
     /// which upstream websocket URL to connect to. start with wss:// or ws://
     upstream: String,
+
+    #[command(flatten)]
+    common: CliCommon,
+}
+
+#[derive(Args, Debug)]
+struct CurlTcpCli {
+    /// which upstream websocket URL to connect to, for example:
+    ///
+    /// example.com
+    /// example.com:80
+    /// [::1]:443
+    /// 127.0.0.1:443
+    ///
+    /// default ports are 80 and 443 depending on the value of the `tls` flag.
+    upstream: String,
+
+    /// Turn off TLS, and instead forward TCP connections as-is.
+    ///
+    /// Without TLS, this proxy is basically useless in terms of fingerprinting resistance, and
+    /// behaves like a TCP port forwarder, but turning it off is still useful for internal testing.
+    #[arg(long)]
+    no_tls: bool,
 
     #[command(flatten)]
     common: CliCommon,
@@ -76,8 +100,11 @@ async fn main() -> Result<(), Error> {
         CliSubcommand::Command(args) => {
             command::main(args).await;
         }
-        CliSubcommand::Curl(args) => {
-            curl::main(args).await?;
+        CliSubcommand::CurlWs(args) => {
+            curl::ws::main(args).await?;
+        }
+        CliSubcommand::CurlTcp(args) => {
+            curl::tcp::main(args).await;
         }
     }
 

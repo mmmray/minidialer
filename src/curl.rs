@@ -1,17 +1,10 @@
-use std::{
-    ffi::{CStr, CString},
-    ptr::null_mut,
-};
+use std::ffi::{CStr, CString};
 
 use anyhow::{Context, Error};
-use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{State, WebSocketUpgrade};
-use axum::http::Uri;
-use axum::Router;
-use libc::size_t;
 use tokio::io::unix::AsyncFd;
 
-use crate::CurlCli;
+pub mod tcp;
+pub mod ws;
 
 #[allow(bad_style)]
 mod bindings {
@@ -62,6 +55,22 @@ mod bindings {
         pub fn curl_easy_strerror(code: CURLcode) -> *const c_char;
 
         #[must_use]
+        pub fn curl_easy_send(
+            curl: *mut CURL,
+            buffer: *const u8,
+            buflen: size_t,
+            n: *mut size_t,
+        ) -> CURLcode;
+
+        #[must_use]
+        pub fn curl_easy_recv(
+            curl: *mut CURL,
+            buffer: *const u8,
+            buflen: size_t,
+            n: *mut size_t,
+        ) -> CURLcode;
+
+        #[must_use]
         pub fn curl_ws_send(
             curl: *mut CURL,
             buffer: *const u8,
@@ -98,46 +107,11 @@ fn check_err(code: bindings::CURLcode) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Clone)]
-struct AppState {
-    upstream: String,
-}
-
-pub async fn main(args: CurlCli) -> Result<(), Error> {
-    let state = AppState {
-        upstream: args.upstream.clone(),
-    };
-
-    let app = Router::new()
-        .fallback(|state, uri, ws: WebSocketUpgrade| async {
-            ws.on_upgrade(|ws| curl_handler(state, uri, ws))
-        })
-        .with_state(state);
-
-    let addr = format!("{}:{}", args.common.host, args.common.port);
-    tracing::info!("listening on {}, forwarding to {}", addr, args.upstream);
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
-
-    Ok(())
-}
-
-async fn curl_handler(State(state): State<AppState>, uri: Uri, mut socket: WebSocket) {
-    let dialer_url = format!(
-        "{}{}",
-        state.upstream,
-        uri.path_and_query()
-            .map(|x| x.as_str())
-            .unwrap_or_else(|| uri.path())
-    );
-
-    tracing::debug!("connecting to {}", dialer_url);
-
+fn curl_connect_only(url: &str, value: usize) -> Result<bindings::SendableCurl, Error> {
     let curl_client = unsafe {
         let rv = bindings::curl_easy_init();
         assert!(!rv.is_null());
-        let url = CString::new(dialer_url).unwrap();
+        let url = CString::new(url).unwrap();
         check_err(bindings::curl_easy_setopt(
             rv,
             bindings::CURLOPT_URL,
@@ -147,118 +121,28 @@ async fn curl_handler(State(state): State<AppState>, uri: Uri, mut socket: WebSo
         check_err(bindings::curl_easy_setopt(
             rv,
             bindings::CURLOPT_CONNECT_ONLY,
-            2 as libc::c_longlong,
+            value as libc::c_longlong,
         ))
         .unwrap();
         bindings::SendableCurl(rv)
     };
-    tracing::debug!("curl initialized");
 
-    if let Err(e) = check_err(unsafe { bindings::curl_easy_perform(curl_client.0) }) {
-        tracing::warn!("curl_easy_perform failed: {}", e);
-        return;
-    }
+    check_err(unsafe { bindings::curl_easy_perform(curl_client.0) })?;
 
-    let curl_socket = {
-        let mut socket: bindings::curl_socket_t = 0;
-        let res = unsafe {
-            bindings::curl_easy_getinfo(
-                curl_client.0,
-                bindings::CURLINFO_ACTIVESOCKET,
-                (&mut socket) as *mut _,
-            )
-        };
-        check_err(res)
-            .context("curl_easy_getinfo(CURLINFO_ACTIVESOCKET) failed")
-            .unwrap();
-        AsyncFd::new(socket).unwrap()
+    Ok(curl_client)
+}
+
+fn curl_get_async_socket(curl_client: &bindings::SendableCurl) -> AsyncFd<i32> {
+    let mut socket: bindings::curl_socket_t = 0;
+    let res = unsafe {
+        bindings::curl_easy_getinfo(
+            curl_client.0,
+            bindings::CURLINFO_ACTIVESOCKET,
+            (&mut socket) as *mut _,
+        )
     };
-
-    let mut to_curl_send: Option<Message> = None;
-    let mut to_client_send: Option<Message> = None;
-
-    loop {
-        if let Some(to_send) = to_client_send.take() {
-            tracing::debug!("sending to client");
-            if socket.send(to_send).await.is_err() {
-                tracing::debug!("failed to forward data from upstream, dropping connection");
-                return;
-            }
-        } else if let Some(to_send) = to_curl_send.take() {
-            tracing::debug!("sending to curl");
-            let mut to_send = to_send.into_data();
-            let mut send_buffer = to_send.as_mut_slice();
-
-            while send_buffer.len() > 0 {
-                let mut sent: size_t = 0;
-                tracing::debug!("curl_ws_send");
-                let res = unsafe {
-                    bindings::curl_ws_send(
-                        curl_client.0,
-                        send_buffer.as_mut_ptr(),
-                        send_buffer.len(),
-                        (&mut sent) as *mut _,
-                        0,
-                        bindings::CURLWS_BINARY,
-                    )
-                };
-
-                if let Err(e) = check_err(res) {
-                    tracing::warn!("curl_ws_send failed: {}", e);
-                    return;
-                }
-
-                send_buffer = &mut send_buffer[sent..];
-            }
-        } else {
-            let mut bytes_received: size_t = 0;
-            let mut buffer: [u8; 2048] = [0; 2048];
-
-            tracing::debug!("curl_ws_recv");
-            // XXX: this hangs after the connection is terminated by the server
-            // ideally it would error, like curl_ws_send
-            let res = unsafe {
-                let mut meta: *mut bindings::curl_ws_frame = null_mut();
-
-                // nonblocking
-                bindings::curl_ws_recv(
-                    curl_client.0,
-                    (&mut buffer) as *mut _,
-                    buffer.len(),
-                    (&mut bytes_received) as *mut _,
-                    (&mut meta) as *mut _,
-                )
-            };
-
-            if let Err(e) = check_err(res) {
-                tracing::warn!("curl_ws_recv failed: {}", e);
-                return;
-            }
-
-            if bytes_received > 0 {
-                to_client_send = Some(Message::Binary(buffer[..bytes_received].to_vec()));
-            } else if res == bindings::CURLE_AGAIN {
-                tracing::debug!("selecting");
-                tokio::select! {
-                    guard = curl_socket.readable() => { guard.unwrap().clear_ready() },
-                    msg = socket.recv() => {
-                        match msg {
-                            Some(Ok(msg)) if !matches!(msg, Message::Close(_)) => {
-                                if matches!(msg, Message::Ping(_) | Message::Pong(_)) {
-                                    tracing::debug!("skipping non-payload message");
-                                } else {
-                                    tracing::debug!("to_curl_send set to {:?}", msg);
-                                    to_curl_send = Some(msg);
-                                }
-                            }
-                            _ => {
-                                tracing::debug!("websocket closed, dropping channel");
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    check_err(res)
+        .context("curl_easy_getinfo(CURLINFO_ACTIVESOCKET) failed")
+        .unwrap();
+    AsyncFd::new(socket).unwrap()
 }
