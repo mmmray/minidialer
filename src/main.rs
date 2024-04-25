@@ -2,7 +2,7 @@ use std::io;
 
 use anyhow::Error;
 use clap::{Args, Parser, Subcommand};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
 mod browser;
 mod command;
@@ -87,7 +87,11 @@ struct CliCommon {
 async fn main() -> Result<(), Error> {
     // write logs to stderr so stdout can be locked from subcommands
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .with_writer(io::stderr)
         .init();
 

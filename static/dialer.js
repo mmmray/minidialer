@@ -6,24 +6,18 @@ if (typeof WebSocket === 'undefined') {
   }
 }
 
-let downSocketUrl;
-
-if (typeof location === 'undefined') {
-  downSocketUrl = 'ws://localhost:3000/minidialer/socket';
-} else {
-  downSocketUrl = `ws://${location.host}/minidialer/socket`;
-}
-
 let numConns = 0;
 let numIdleConns = 0;
 
-function openConn() {
+function openConn(csrfToken) {
+  const url = `ws://${location.host}/minidialer/socket?csrf=${csrfToken}`;
+
   numConns += 1;
   numIdleConns += 1;
 
   console.log(`new idle conn  ${numIdleConns} idle, ${numConns} total`);
 
-  const downSocket = new WebSocket(downSocketUrl);
+  const downSocket = new WebSocket(url);
   // arraybuffer is significantly faster in chrome than default blob, tested
   // with chrome 123
   downSocket.binaryType = "arraybuffer";
@@ -72,8 +66,10 @@ function openConn() {
   }
 }
 
-setInterval(() => {
-  if(numIdleConns < 1 && numConns < 200) {
-    openConn();
-  }
-}, 1000);
+function dialMain(csrfToken) {
+  setInterval(() => {
+    if(numIdleConns < 1 && numConns < 200) {
+      openConn(csrfToken);
+    }
+  }, 1000);
+}

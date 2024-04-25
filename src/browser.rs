@@ -4,13 +4,15 @@ use async_channel::{bounded, Receiver, Sender};
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Query, State,
     },
-    http::Uri,
+    http::{HeaderMap, Uri},
     response::{Html, Redirect},
     routing::{any, get},
     Router,
 };
+use serde::Deserialize;
+use uuid::Uuid;
 
 use crate::BrowserCli;
 
@@ -20,6 +22,7 @@ pub async fn main(args: BrowserCli) {
     let (browser_listen_queue_in, browser_listen_queue_out) = bounded(4096);
 
     let state = AppState {
+        csrf_token: Uuid::new_v4().to_string(),
         browser_listen_queue_in,
         browser_listen_queue_out,
         upstream: args.upstream.clone(),
@@ -42,8 +45,8 @@ pub async fn main(args: BrowserCli) {
         )
         .route(
             "/minidialer/socket",
-            any(|state, ws: WebSocketUpgrade| async {
-                ws.on_upgrade(|ws| browser_handler(state, ws))
+            any(|state, params, headers, ws: WebSocketUpgrade| async {
+                ws.on_upgrade(|ws| browser_handler(state, params, headers, ws))
             }),
         )
         .fallback(|state, uri, ws: WebSocketUpgrade| async {
@@ -53,28 +56,51 @@ pub async fn main(args: BrowserCli) {
 
     let addr = format!("{}:{}", args.common.host, args.common.port);
     tracing::info!("listening on {}, forwarding to {}", addr, args.upstream);
+    tracing::info!(
+        "open http://{}/minidialer/ in a browser, and connect to ws://{} instead of {}",
+        addr,
+        addr,
+        args.upstream
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
+#[derive(Deserialize)]
+struct Params {
+    csrf: String,
+}
+
 #[derive(Clone)]
 struct AppState {
+    csrf_token: String,
     upstream: String,
     browser_listen_queue_in: Sender<Pipe>,
     browser_listen_queue_out: Receiver<Pipe>,
 }
 
-async fn root() -> Html<&'static str> {
-    Html(
-        r#"
-<!DOCTYPE html>
-<script src=dialer.js></script>
-"#,
-    )
+async fn root(State(state): State<AppState>) -> Html<String> {
+    Html(format!(
+        "<!DOCTYPE html><script src=dialer.js></script><script>dialMain(\"{}\")</script>",
+        state.csrf_token
+    ))
 }
 
-async fn browser_handler(State(state): State<AppState>, socket: WebSocket) {
+async fn browser_handler(
+    State(state): State<AppState>,
+    Query(params): Query<Params>,
+    headers: HeaderMap,
+    socket: WebSocket,
+) {
+    if state.csrf_token != params.csrf {
+        tracing::warn!(
+            "origin {:?} presented a mismatched csrf token. refresh browser page?",
+            headers.get("origin")
+        );
+        return;
+    }
+
     let get_pipe = || async {
         let (sender2, receiver) = bounded(4096);
         let (sender, receiver2) = bounded(4096);
