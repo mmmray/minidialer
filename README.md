@@ -152,6 +152,47 @@ Steps:
    `wss://example.com` (in case of websocket, adapt for other protocols)
 3. Follow the Curl WebSocket Dialer docs to customize the TLS fingerprint.
 
+## TCP Fragment
+
+A tool to inject TCP fragmentation at user-defined locations.
+
+This can be used to fragment SNI and Hostname in very specific locations in
+attempts to trick DPI.
+
+Requirements:
+
+* Have an existing cloudflare setup, with a domain like `example.com`.
+* Have cloudflare configured to accept the same requests on a subdomain
+  `www.speedtest.net.example.com`. Wildcard subdomains work too.
+
+Steps:
+
+1. Run `minidialer tcp-fragment --split-after www.speedtest.net www.speedtest.net:80`
+2. Change your cloudflare config to talk to `localhost:3000` (without TLS), and change request host and SNI to `www.speedtest.net.example.com`
+
+Remarks:
+
+* The dialer connects to the real `www.speedtest.net` IP address, and, using
+  packet fragmentation, tricks DPI into thinking that the hostname
+  `www.speedtest.net` is being accessed, while cloudflare sees
+  `www.speedtest.net.example.com`.
+
+  `--split-after www.speedtest.net` means that `minidialer` will fragment after
+  encountering the string `www.speedtest.net` in the TCP stream, and pause
+  transmission for 10 seconds. This causes DPI to assume the wrong hostname
+  `www.speedtest.net`, even though it is continued later in another packet.
+
+* 10 seconds can be changed with `--split-sleep-ms` to something else. A high
+  value is necessary to trick the GFW, but a low value is desirable for fast
+  connection. It is recommended to find the right value using trial-and-error,
+  and to compensate for the degraded connection experience using MUX.
+
+* The above example works with plaintext HTTP and `Host` header, but it can be done with SSL and (plaintext!) SNI. The
+  issue with SSL is that certificates for multi-level subdomains
+  `a.b.c.example.com` are not part of the free Cloudflare offering, and are
+  instead in a paid addon called [Total
+  TLS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/total-tls/error-messages/)
+
 ## Future ideas
 
 * Integrate chromium network stack or other ideas from naiveproxy -- should be

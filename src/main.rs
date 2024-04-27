@@ -7,6 +7,7 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 mod browser;
 mod command;
 mod curl;
+mod tcp_fragment;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -21,6 +22,7 @@ enum CliSubcommand {
     Command(CommandCli),
     CurlWs(CurlWsCli),
     CurlTcp(CurlTcpCli),
+    TcpFragment(TcpFragmentCli),
 }
 
 #[derive(Args, Debug)]
@@ -72,7 +74,35 @@ struct CurlTcpCli {
     common: CliCommon,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
+struct TcpFragmentCli {
+    /// for example, example.com:443
+    ///
+    /// port is mandatory
+    upstream: String,
+
+    /// after this string, a new TCP packet will be started.
+    ///
+    /// only outbound packets are affected. the string may appear multiple times, in which case
+    /// multiple packets are affected.
+    #[arg(long)]
+    split_after: String,
+
+    /// Sleep this many milliseconds between packets. It has been shown that certain middlemen do not
+    /// like to keep their reassembly buffers around for longer than 10 seconds.
+    ///
+    /// Defaults to 10 seconds.
+    ///
+    /// In the current implementation, setting it to a very low value (< 1) can cause fragmentation
+    /// to be disabled, because the fragmentation itself is implemented as just a sleep statement.
+    #[arg(long, default_value_t = 10000)]
+    split_sleep_ms: u64,
+
+    #[command(flatten)]
+    common: CliCommon,
+}
+
+#[derive(Args, Debug, Clone)]
 struct CliCommon {
     /// which local host to listen to
     #[arg(long, default_value = "127.0.0.1")]
@@ -109,6 +139,9 @@ async fn main() -> Result<(), Error> {
         }
         CliSubcommand::CurlTcp(args) => {
             curl::tcp::main(args).await;
+        }
+        CliSubcommand::TcpFragment(args) => {
+            tcp_fragment::main(args).await;
         }
     }
 
