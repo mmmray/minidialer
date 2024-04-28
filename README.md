@@ -185,10 +185,10 @@ Remarks:
 
   `--split-after www.speedtest.net` means that `minidialer` will fragment after
   encountering the string `www.speedtest.net` in the TCP stream, and pause
-  transmission for 10 seconds. This causes DPI to assume the wrong hostname
+  transmission for 5 seconds. This causes DPI to assume the wrong hostname
   `www.speedtest.net`, even though it is continued later in another packet.
 
-* 10 seconds can be changed with `--split-sleep-ms` to something else. A high
+* 5 seconds can be changed with `--split-sleep-ms` to something else. A high
   value is necessary to trick the GFW, but a low value is desirable for fast
   connection. It is recommended to find the right value using trial-and-error,
   and to compensate for the degraded connection experience using MUX.
