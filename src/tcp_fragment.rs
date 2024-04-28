@@ -39,13 +39,19 @@ async fn process_connection(mut downstream: TcpStream, args: TcpFragmentCli) -> 
         tokio::select! {
             upstream_read = upstream.read(&mut upstream_buffer) => {
                 let upstream_read = upstream_read.context("failed to read from upstream")?;
+                if upstream_read == 0 {
+                    tracing::debug!("empty read from upstream");
+                    return Ok(());
+                }
+
                 downstream.write_all(&upstream_buffer[..upstream_read]).await.context("failed to write to downstream")?;
             }
             downstream_read = downstream.read(&mut downstream_buffer) => {
                 let downstream_read = downstream_read.context("failed to read from downstream")?;
 
                 if downstream_read == 0 {
-                    continue;
+                    tracing::debug!("empty read from downstream");
+                    return Ok(());
                 }
 
                 // just to be sure we will never double-read data
