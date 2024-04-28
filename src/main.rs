@@ -93,6 +93,13 @@ struct TcpFragmentCli {
     #[arg(long)]
     split_after: String,
 
+    /// Enable TCP nodelay, possibly fragmenting packets further.
+    ///
+    /// Use this if you want to preserve the fragmentation from the xray client. In this case, it
+    /// is possibly not necessary to have a high value for `--split-sleep-ms`
+    #[arg(long)]
+    tcp_nodelay: bool,
+
     /// Sleep this many milliseconds between packets. It has been shown that certain middlemen do not
     /// like to keep their reassembly buffers around for longer than 10 seconds.
     ///
