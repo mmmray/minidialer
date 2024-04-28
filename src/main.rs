@@ -107,7 +107,7 @@ struct TcpFragmentCli {
     ///
     /// In the current implementation, setting it to a very low value (< 1) can cause fragmentation
     /// to be disabled, because the fragmentation itself is implemented as just a sleep statement.
-    #[arg(long, default_value_t = 10000)]
+    #[arg(long, default_value_t = 5000)]
     split_sleep_ms: u64,
 
     #[command(flatten)]
