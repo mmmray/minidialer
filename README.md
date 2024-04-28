@@ -13,6 +13,12 @@ cd minidialer
 cargo build --release
 ```
 
+If you are on Windows or do not have curl installed, you can instead run:
+
+```
+cargo build --release --no-default-features
+```
+
 Binary is in `./target/release/minidialer`
 
 Or, for development, use `cargo run --` instead of `minidialer` command.
