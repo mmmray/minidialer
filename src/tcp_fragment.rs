@@ -30,14 +30,14 @@ async fn process_connection(mut downstream: TcpStream, args: TcpFragmentCli) -> 
 
     let mut upstream = TcpStream::connect(&args.upstream).await?;
 
-    let mut upstream_buffer = [0u8; 65536];
-    let mut downstream_buffer = [0u8; 65536];
+    let mut upstream_buffer = Box::new([0u8; 65536]);
+    let mut downstream_buffer = Box::new([0u8; 65536]);
     let mut downstream_match_offset = 0;
     let split_after = args.split_after.as_bytes();
 
     'main: loop {
         tokio::select! {
-            upstream_read = upstream.read(&mut upstream_buffer) => {
+            upstream_read = upstream.read(&mut *upstream_buffer) => {
                 let upstream_read = upstream_read.context("failed to read from upstream")?;
                 if upstream_read == 0 {
                     tracing::debug!("empty read from upstream");
@@ -46,7 +46,7 @@ async fn process_connection(mut downstream: TcpStream, args: TcpFragmentCli) -> 
 
                 downstream.write_all(&upstream_buffer[..upstream_read]).await.context("failed to write to downstream")?;
             }
-            downstream_read = downstream.read(&mut downstream_buffer) => {
+            downstream_read = downstream.read(&mut *downstream_buffer) => {
                 let downstream_read = downstream_read.context("failed to read from downstream")?;
 
                 if downstream_read == 0 {
