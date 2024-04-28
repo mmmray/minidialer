@@ -123,6 +123,8 @@ where
                         }
                     }
 
+                    downstream_match_offset = 0;
+
                     tracing::debug!("found no match");
                     upstream.write_all(downstream_buffer).await.context("failed to write to upstream")?;
                 }
@@ -346,5 +348,39 @@ mod tests {
             ]
         );
         assert_eq!(sleep_count, 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn regression_split_many() {
+        let mut downloaded = Vec::new();
+        let mut client = join(
+            Fragments(vec![
+                b"Host: www.".to_vec(),
+                b"speedtes".to_vec(),
+                b"hello".to_vec(),
+                b"t.net.example.com".to_vec(),
+            ]),
+            &mut downloaded,
+        );
+
+        let mut uploaded = Fragments::default();
+        let mut server = join(Nothing, &mut uploaded);
+
+        let sleep_count = process_connection(&mut client, &mut server, b"www.speedtest.net", 0)
+            .await
+            .unwrap();
+
+        assert_eq!(downloaded, b"");
+        assert_eq!(
+            uploaded,
+            vec![
+                b"Host: www.".to_vec(),
+                b"speedtes".to_vec(),
+                b"hello".to_vec(),
+                b"t.net.example.com".to_vec(),
+            ]
+        );
+        assert_eq!(sleep_count, 0);
     }
 }
