@@ -86,47 +86,50 @@ where
                 }
 
                 // just to be sure we will never double-read data
-                let downstream_buffer = &downstream_buffer[..downstream_read];
+                let mut downstream_buffer = &downstream_buffer[..downstream_read];
 
-                let buffer_match_prefix = &downstream_buffer[..cmp::min(split_after.len() - downstream_match_offset, downstream_read)];
+                while !downstream_buffer.is_empty() {
+                    let buffer_match_prefix = &downstream_buffer[..cmp::min(split_after.len() - downstream_match_offset, downstream_buffer.len())];
 
-                if split_after[downstream_match_offset..].starts_with(buffer_match_prefix) {
-                    tracing::debug!("found split match at beginning of buffer");
+                    if split_after[downstream_match_offset..].starts_with(buffer_match_prefix) {
+                        tracing::debug!("found split match at beginning of buffer");
 
-                    downstream_match_offset += buffer_match_prefix.len();
+                        downstream_match_offset += buffer_match_prefix.len();
 
-                    upstream.write_all(buffer_match_prefix).await.context("failed to write to upstream")?;
+                        upstream.write_all(buffer_match_prefix).await.context("failed to write to upstream")?;
 
-                    if downstream_match_offset == split_after.len() {
-                        do_sleep().await;
-                        downstream_match_offset = 0;
-                    }
-
-                    upstream.write_all(&downstream_buffer[buffer_match_prefix.len()..]).await.context("failed to write to upstream")?;
-                } else if let Some(mut idx) = downstream_buffer.windows(split_after.len()).position(|window| window == split_after) {
-                    downstream_match_offset = 0;
-
-                    tracing::debug!("found split match in the middle of buffer");
-
-                    idx += split_after.len();
-
-                    upstream.write_all(&downstream_buffer[..idx]).await.context("failed to write to upstream")?;
-                    do_sleep().await;
-                    upstream.write_all(&downstream_buffer[idx..]).await.context("failed to write to upstream")?;
-                } else {
-                    for overlap in (1..cmp::min(downstream_buffer.len(), split_after.len()) - 1).rev() {
-                        if &downstream_buffer[(downstream_buffer.len() - overlap)..] == &split_after[..overlap] {
-                            tracing::debug!("found split match at end of buffer, of length {}", overlap);
-                            downstream_match_offset = overlap;
-                            upstream.write_all(downstream_buffer).await.context("failed to write to upstream")?;
-                            continue 'main;
+                        if downstream_match_offset == split_after.len() {
+                            do_sleep().await;
+                            downstream_match_offset = 0;
                         }
+
+                        downstream_buffer = &downstream_buffer[buffer_match_prefix.len()..];
+                    } else if let Some(mut idx) = downstream_buffer.windows(split_after.len()).position(|window| window == split_after) {
+                        downstream_match_offset = 0;
+
+                        tracing::debug!("found split match in the middle of buffer");
+
+                        idx += split_after.len();
+
+                        upstream.write_all(&downstream_buffer[..idx]).await.context("failed to write to upstream")?;
+                        do_sleep().await;
+                        downstream_buffer = &downstream_buffer[idx..];
+                    } else {
+                        for overlap in (1..cmp::min(downstream_buffer.len(), split_after.len()) - 1).rev() {
+                            if &downstream_buffer[(downstream_buffer.len() - overlap)..] == &split_after[..overlap] {
+                                tracing::debug!("found split match at end of buffer, of length {}", overlap);
+                                downstream_match_offset = overlap;
+                                upstream.write_all(downstream_buffer).await.context("failed to write to upstream")?;
+                                continue 'main;
+                            }
+                        }
+
+                        downstream_match_offset = 0;
+
+                        tracing::debug!("found no match");
+                        upstream.write_all(downstream_buffer).await.context("failed to write to upstream")?;
+                        break;
                     }
-
-                    downstream_match_offset = 0;
-
-                    tracing::debug!("found no match");
-                    upstream.write_all(downstream_buffer).await.context("failed to write to upstream")?;
                 }
             }
         }
@@ -382,5 +385,39 @@ mod tests {
             ]
         );
         assert_eq!(sleep_count, 0);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn regression_split_series() {
+        let mut downloaded = Vec::new();
+        let mut client = join(
+            Fragments(vec![
+                b"Host: www.".to_vec(),
+                b"speedtest.nethellowww.".to_vec(),
+                b"speedtest.net.example.com".to_vec(),
+            ]),
+            &mut downloaded,
+        );
+
+        let mut uploaded = Fragments::default();
+        let mut server = join(Nothing, &mut uploaded);
+
+        let sleep_count = process_connection(&mut client, &mut server, b"www.speedtest.net", 0)
+            .await
+            .unwrap();
+
+        assert_eq!(downloaded, b"");
+        assert_eq!(
+            uploaded,
+            vec![
+                b"Host: www.".to_vec(),
+                b"speedtest.net".to_vec(),
+                b"hellowww.".to_vec(),
+                b"speedtest.net".to_vec(),
+                b".example.com".to_vec(),
+            ]
+        );
+        assert_eq!(sleep_count, 2);
     }
 }
