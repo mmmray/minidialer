@@ -6,6 +6,7 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
 mod browser;
 mod command;
+#[cfg(feature = "curl")]
 mod curl;
 mod tcp_fragment;
 
@@ -20,7 +21,9 @@ struct Cli {
 enum CliSubcommand {
     Browser(BrowserCli),
     Command(CommandCli),
+    #[cfg(feature = "curl")]
     CurlWs(CurlWsCli),
+    #[cfg(feature = "curl")]
     CurlTcp(CurlTcpCli),
     TcpFragment(TcpFragmentCli),
 }
@@ -42,6 +45,7 @@ struct CommandCli {
     command: Vec<String>,
 }
 
+#[cfg(feature = "curl")]
 #[derive(Args, Debug)]
 struct CurlWsCli {
     /// which upstream websocket URL to connect to. start with wss:// or ws://
@@ -51,6 +55,7 @@ struct CurlWsCli {
     common: CliCommon,
 }
 
+#[cfg(feature = "curl")]
 #[derive(Args, Debug)]
 struct CurlTcpCli {
     /// which upstream websocket URL to connect to, for example:
@@ -134,9 +139,11 @@ async fn main() -> Result<(), Error> {
         CliSubcommand::Command(args) => {
             command::main(args).await;
         }
+        #[cfg(feature = "curl")]
         CliSubcommand::CurlWs(args) => {
             curl::ws::main(args).await?;
         }
+        #[cfg(feature = "curl")]
         CliSubcommand::CurlTcp(args) => {
             curl::tcp::main(args).await;
         }

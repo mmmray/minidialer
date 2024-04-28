@@ -16,3 +16,8 @@ tokio = { version = "1.36.0", features = ["sync", "rt-multi-thread", "process"] 
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 uuid = { version = "1.8.0", features = ["v4"] }
+
+[features]
+default = ["curl"]
+
+curl = []
