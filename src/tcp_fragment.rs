@@ -312,4 +312,37 @@ mod tests {
         );
         assert_eq!(sleep_count, 1);
     }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_split_three() {
+        let mut downloaded = Vec::new();
+        let mut client = join(
+            Fragments(vec![
+                b"Host: www.".to_vec(),
+                b"speedtes".to_vec(),
+                b"t.net.example.com".to_vec(),
+            ]),
+            &mut downloaded,
+        );
+
+        let mut uploaded = Fragments::default();
+        let mut server = join(Nothing, &mut uploaded);
+
+        let sleep_count = process_connection(&mut client, &mut server, b"www.speedtest.net", 0)
+            .await
+            .unwrap();
+
+        assert_eq!(downloaded, b"");
+        assert_eq!(
+            uploaded,
+            vec![
+                b"Host: www.".to_vec(),
+                b"speedtes".to_vec(),
+                b"t.net".to_vec(),
+                b".example.com".to_vec(),
+            ]
+        );
+        assert_eq!(sleep_count, 1);
+    }
 }
