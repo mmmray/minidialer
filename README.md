@@ -23,9 +23,7 @@ Binary is in `./target/release/minidialer`
 
 Or, for development, use `cargo run --` instead of `minidialer` command.
 
-## Usage
-
-### Browser Dialer (websocket-only)
+## Browser Dialer (websocket-only)
 
 Open a webpage in a browser to use that browser's TLS stack. Only works for
 websocket-based v2ray configs.
@@ -72,22 +70,6 @@ apps -> v2ray-client -> minidialer -> browser -> v2ray-server
 
 Make sure that `browser` is not routed to `v2ray-client` like other `apps`!
 System proxy is a problem.
-
-### Nodejs dialer
-
-The same thing as browser dialer, but instead of opening a browser, you can
-use:
-
-```
-npm install websocket
-node static/dialer.js
-```
-
-Performance is the same, but resource usage may be lower.
-
-**Note:** Browser TLS fingerprints are very different from Node, so this
-doesn't blend in. However, node TLS fingerprint is also different from Golang
-fingerprints, so it might still work if uTLS is not an option.
 
 ## Command dialer (any TCP)
 
