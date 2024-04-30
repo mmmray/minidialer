@@ -27,7 +27,7 @@ pub async fn main(args: TcpFragmentCli) {
                 }
             };
 
-            upstream.set_nodelay(args.tcp_nodelay).unwrap();
+            upstream.set_nodelay(true).unwrap();
 
             if let Err(e) = process_connection(
                 socket,
