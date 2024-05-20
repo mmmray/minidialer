@@ -181,6 +181,31 @@ Remarks:
   instead in a paid addon called [Total
   TLS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/total-tls/error-messages/)
 
+## Split HTTP tunnel
+
+The "split http" tunnel is a tool to proxy TCP streams through CDNs without
+WebSocket support. The only requirement are working streaming HTTP responses.
+Uploads are implemented as separate HTTP requests.
+
+The proxied TCP session is terminated when the streaming HTTP response is
+terminated.
+
+For usage, run each command in a separate terminal:
+
+```
+nc -l 8080  # our actual TCP-based server
+minidialer split-http-server localhost:8080
+minidialer split-http --port 3001 http://localhost:3000
+nc localhost 3001
+```
+
+Now a bidirectional connection is established between first and last netcat.
+
+```
+nc -l 8080 <-> split-http-server <-> split-http <-> nc client
+```
+
+
 ## Future ideas
 
 * Integrate chromium network stack or other ideas from naiveproxy -- should be

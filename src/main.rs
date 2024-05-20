@@ -8,6 +8,7 @@ mod browser;
 mod command;
 #[cfg(feature = "curl")]
 mod curl;
+mod splithttp;
 mod tcp_fragment;
 
 #[derive(Parser, Debug)]
@@ -26,6 +27,8 @@ enum CliSubcommand {
     #[cfg(feature = "curl")]
     CurlTcp(CurlTcpCli),
     TcpFragment(TcpFragmentCli),
+    SplitHttp(SplitHttpCli),
+    SplitHttpServer(SplitHttpServerCli),
 }
 
 #[derive(Args, Debug)]
@@ -108,6 +111,26 @@ struct TcpFragmentCli {
 }
 
 #[derive(Args, Debug, Clone)]
+struct SplitHttpCli {
+    /// for example, https://example.com/subpath/
+    upstream: String,
+
+    #[command(flatten)]
+    common: CliCommon,
+}
+
+#[derive(Args, Debug, Clone)]
+struct SplitHttpServerCli {
+    /// for example, example.com:443
+    ///
+    /// Port mandatory.
+    upstream: String,
+
+    #[command(flatten)]
+    common: CliCommon,
+}
+
+#[derive(Args, Debug, Clone)]
 struct CliCommon {
     /// which local host to listen to
     #[arg(long, default_value = "127.0.0.1")]
@@ -149,6 +172,12 @@ async fn main() -> Result<(), Error> {
         }
         CliSubcommand::TcpFragment(args) => {
             tcp_fragment::main(args).await;
+        }
+        CliSubcommand::SplitHttp(args) => {
+            splithttp::client::main(args).await?;
+        }
+        CliSubcommand::SplitHttpServer(args) => {
+            splithttp::server::main(args).await?;
         }
     }
 
