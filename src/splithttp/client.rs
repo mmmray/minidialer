@@ -32,7 +32,7 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
         tokio::spawn(async move {
             tracing::debug!("new connection");
 
-            if let Err(e) = process_connection(socket, upstream_client, headermap, upstream).await {
+            if let Err(e) = process_connection(socket, upstream_client, headermap, upstream, args.upload_chunk_size).await {
                 tracing::warn!("connection closed, error: {:?}", e);
             }
         });
@@ -44,6 +44,7 @@ async fn process_connection(
     upstream_client: reqwest::Client,
     headermap: HeaderMap,
     upstream: String,
+    upload_chunk_size: usize,
 ) -> Result<(), Error> {
     let session_id = uuid::Uuid::new_v4();
 
@@ -53,7 +54,7 @@ async fn process_connection(
         .send()
         .await?;
 
-    let mut downstream_buffer = Box::new([0u8; 65536]);
+    let mut downstream_buffer = vec![0; upload_chunk_size].into_boxed_slice();
 
     loop {
         tokio::select! {
@@ -76,11 +77,13 @@ async fn process_connection(
                     return Ok(());
                 }
 
-                let response = upstream_client.post(format!("{upstream}/{session_id}/up"))
-
-
-        .headers(headermap.clone())
-                    .body(downstream_buffer[..downstream_read].to_vec()).send().await.context("failed to write to upstream")?;
+                let response = upstream_client
+                    .post(format!("{upstream}/{session_id}/up"))
+                    .headers(headermap.clone())
+                    .body(downstream_buffer[..downstream_read].to_vec())
+                    .send()
+                    .await
+                    .context("failed to write to upstream")?;
                 response.error_for_status()?;
             }
         }

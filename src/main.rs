@@ -115,8 +115,16 @@ struct SplitHttpCli {
     /// for example, https://example.com/subpath/
     upstream: String,
 
+    /// Additional HTTP headers to set (or override)
     #[arg(long, short = 'H')]
     header: Vec<String>,
+
+    /// What is the largest payload that should be uploaded per HTTP request?
+    ///
+    /// Large values may not pass certain firewalls, small payloads waste a lot of bandwidth to
+    /// HTTP overhead.
+    #[arg(long, default_value_t = 122880)]
+    upload_chunk_size: usize,
 
     #[command(flatten)]
     common: CliCommon,
