@@ -25,7 +25,7 @@ pub async fn main(args: SplitHttpServerCli) -> Result<(), Error> {
     };
 
     let app = Router::new()
-        .route("/:session/down", post(down_handler))
+        .route("/:session/down", get(down_handler))
         .route("/:session/up", post(up_handler))
         .with_state(state);
 

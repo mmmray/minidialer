@@ -115,6 +115,9 @@ struct SplitHttpCli {
     /// for example, https://example.com/subpath/
     upstream: String,
 
+    #[arg(long, short = 'H')]
+    header: Vec<String>,
+
     #[command(flatten)]
     common: CliCommon,
 }

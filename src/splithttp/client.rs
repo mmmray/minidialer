@@ -1,4 +1,5 @@
 use anyhow::{Context, Error};
+use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -10,20 +11,28 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
+    let mut headermap = HeaderMap::new();
+
+    for header in args.header {
+        let (k, v) = header.split_once(':').unwrap();
+        let k = HeaderName::from_bytes(k.as_bytes()).unwrap();
+        let v = HeaderValue::from_bytes(v.as_bytes()).unwrap();
+        headermap.insert(k, v);
+    }
+
     let upstream_client = reqwest::Client::new();
 
     loop {
         let (socket, _) = listener.accept().await.unwrap();
 
-        let args = args.clone();
-
         let upstream_client = upstream_client.clone();
         let upstream = args.upstream.clone();
+        let headermap = headermap.clone();
 
         tokio::spawn(async move {
             tracing::debug!("new connection");
 
-            if let Err(e) = process_connection(socket, upstream_client, upstream).await {
+            if let Err(e) = process_connection(socket, upstream_client, headermap, upstream).await {
                 tracing::warn!("connection closed, error: {:?}", e);
             }
         });
@@ -33,12 +42,14 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
 async fn process_connection(
     mut downstream: TcpStream,
     upstream_client: reqwest::Client,
+    headermap: HeaderMap,
     upstream: String,
 ) -> Result<(), Error> {
     let session_id = uuid::Uuid::new_v4();
 
     let mut downloader = upstream_client
-        .post(format!("{upstream}/{session_id}/down"))
+        .get(format!("{upstream}/{session_id}/down"))
+        .headers(headermap.clone())
         .send()
         .await?;
 
@@ -65,7 +76,11 @@ async fn process_connection(
                     return Ok(());
                 }
 
-                let response = upstream_client.post(format!("{upstream}/{session_id}/up")).body(downstream_buffer[..downstream_read].to_vec()).send().await.context("failed to write to upstream")?;
+                let response = upstream_client.post(format!("{upstream}/{session_id}/up"))
+
+
+        .headers(headermap.clone())
+                    .body(downstream_buffer[..downstream_read].to_vec()).send().await.context("failed to write to upstream")?;
                 response.error_for_status()?;
             }
         }
