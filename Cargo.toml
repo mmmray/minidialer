@@ -12,7 +12,7 @@ axum = { version = "0.7.5", features = ["query", "ws", "tokio", "tracing", "http
 clap = { version = "4.5.4", features = ["derive"] }
 futures-util = "0.3.30"
 libc = "0.2.153"
-reqwest = "0.12.4"
+reqwest = { version = "0.12.4", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1.0.198", features = ["derive"] }
 tokio = { version = "1.36.0", features = ["sync", "rt-multi-thread", "process"] }
 tracing = "0.1.40"
