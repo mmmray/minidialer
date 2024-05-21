@@ -67,7 +67,10 @@ async fn down_handler(
     });
 
     let body = Body::from_stream(down_channel_receiver.map(Ok::<_, Error>));
-    Response::new(body)
+    Response::builder()
+        .header("X-Accel-Buffering", "no")
+        .body(body)
+        .unwrap()
 }
 
 async fn forward_channels(
