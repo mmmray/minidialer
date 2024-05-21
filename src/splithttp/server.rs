@@ -9,7 +9,7 @@ use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
     http::Response,
-    routing::post,
+    routing::{get, post},
     Router,
 };
 use futures_util::StreamExt;
