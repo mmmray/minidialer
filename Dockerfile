@@ -14,6 +14,8 @@ RUN rm ./target/release/deps/minidialer* && cargo build --release
 
 FROM debian:bookworm
 
+RUN apt-get update && apt-get install libcurl4-openssl-dev
+
 COPY --from=builder /minidialer/target/release/minidialer /usr/local/bin/minidialer
 
 ENTRYPOINT ["minidialer"]
