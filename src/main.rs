@@ -115,6 +115,12 @@ struct SplitHttpCli {
     /// for example, https://example.com/subpath/
     upstream: String,
 
+    /// Optionally, a different URL to send the download requests to.
+    ///
+    /// In the end this URL still needs to (indirectly) point to the same server.
+    #[arg(long)]
+    download_upstream: Option<String>,
+
     /// Additional HTTP headers to set (or override)
     #[arg(long, short = 'H')]
     header: Vec<String>,

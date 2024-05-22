@@ -26,13 +26,27 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
         let (socket, _) = listener.accept().await.unwrap();
 
         let upstream_client = upstream_client.clone();
+        let download_upstream = args
+            .download_upstream
+            .as_ref()
+            .unwrap_or(&args.upstream)
+            .clone();
         let upstream = args.upstream.clone();
         let headermap = headermap.clone();
 
         tokio::spawn(async move {
             tracing::debug!("new connection");
 
-            if let Err(e) = process_connection(socket, upstream_client, headermap, upstream, args.upload_chunk_size).await {
+            if let Err(e) = process_connection(
+                socket,
+                upstream_client,
+                headermap,
+                download_upstream,
+                upstream,
+                args.upload_chunk_size,
+            )
+            .await
+            {
                 tracing::warn!("connection closed, error: {:?}", e);
             }
         });
@@ -43,13 +57,14 @@ async fn process_connection(
     mut downstream: TcpStream,
     upstream_client: reqwest::Client,
     headermap: HeaderMap,
+    download_upstream: String,
     upstream: String,
     upload_chunk_size: usize,
 ) -> Result<(), Error> {
     let session_id = uuid::Uuid::new_v4();
 
     let mut downloader = upstream_client
-        .get(format!("{upstream}/{session_id}/down"))
+        .get(format!("{download_upstream}/{session_id}/down"))
         .headers(headermap.clone())
         .send()
         .await?;
