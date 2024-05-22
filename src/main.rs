@@ -118,8 +118,15 @@ struct SplitHttpCli {
     /// Optionally, a different URL to send the download requests to.
     ///
     /// In the end this URL still needs to (indirectly) point to the same server.
+    ///
+    /// If used, -H does not apply to it, only upload. --download-header needs to be used for
+    /// download.
     #[arg(long)]
     download_upstream: Option<String>,
+
+    /// Additional HTTP headers to set for the download URL.
+    #[arg(long)]
+    download_header: Vec<String>,
 
     /// Additional HTTP headers to set (or override)
     #[arg(long, short = 'H')]

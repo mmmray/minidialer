@@ -10,15 +10,12 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
     tracing::info!("listening on {}, forwarding to {}", addr, args.upstream,);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-
-    let mut headermap = HeaderMap::new();
-
-    for header in args.header {
-        let (k, v) = header.split_once(':').unwrap();
-        let k = HeaderName::from_bytes(k.as_bytes()).unwrap();
-        let v = HeaderValue::from_bytes(v.as_bytes()).unwrap();
-        headermap.insert(k, v);
-    }
+    let headermap = parse_header_args(&args.header);
+    let download_headermap = if args.download_upstream.is_some() {
+        parse_header_args(&args.download_header)
+    } else {
+        headermap.clone()
+    };
 
     let upstream_client = reqwest::Client::new();
 
@@ -32,6 +29,7 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
             .unwrap_or(&args.upstream)
             .clone();
         let upstream = args.upstream.clone();
+        let download_headermap = download_headermap.clone();
         let headermap = headermap.clone();
 
         tokio::spawn(async move {
@@ -41,6 +39,7 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
                 socket,
                 upstream_client,
                 headermap,
+                download_headermap,
                 download_upstream,
                 upstream,
                 args.upload_chunk_size,
@@ -53,10 +52,24 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
     }
 }
 
+fn parse_header_args(cli: &[String]) -> HeaderMap {
+    let mut headermap = HeaderMap::new();
+
+    for header in cli {
+        let (k, v) = header.split_once(':').unwrap();
+        let k = HeaderName::from_bytes(k.as_bytes()).unwrap();
+        let v = HeaderValue::from_bytes(v.as_bytes()).unwrap();
+        headermap.insert(k, v);
+    }
+
+    headermap
+}
+
 async fn process_connection(
     mut downstream: TcpStream,
     upstream_client: reqwest::Client,
     headermap: HeaderMap,
+    download_headermap: HeaderMap,
     download_upstream: String,
     upstream: String,
     upload_chunk_size: usize,
@@ -65,7 +78,7 @@ async fn process_connection(
 
     let mut downloader = upstream_client
         .get(format!("{download_upstream}/{session_id}/down"))
-        .headers(headermap.clone())
+        .headers(download_headermap)
         .send()
         .await?;
 
