@@ -7,21 +7,14 @@ for use with v2ray variants.
 
 ## Installation
 
-```
-git clone https://github.com/mmmray/minidialer
-cd minidialer
-cargo build --release
-```
-
-If you are on Windows or do not have curl installed, you can instead run:
+Use the docker image:
 
 ```
-cargo build --release --no-default-features
+# same as minidialer --help
+docker run ghcr.io/mmmray/minidialer:latest --help
 ```
 
-Binary is in `./target/release/minidialer`
-
-Or, for development, use `cargo run --` instead of `minidialer` command.
+Or install with `cargo install --git https://github.com/mmmray/minidialer`
 
 ## Browser Dialer (websocket-only)
 
@@ -204,6 +197,8 @@ Now a bidirectional connection is established between first and last netcat.
 ```
 nc -l 8080 <-> split-http-server <-> split-http <-> nc client
 ```
+
+See [split-http example](./examples/split-http/) for a more realistic setup.
 
 
 ## Future ideas

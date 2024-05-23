@@ -1,0 +1,2 @@
+RewriteEngine On
+RewriteRule ^(.*)$ http://minidialer-server:3000/$1 [P]

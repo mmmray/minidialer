@@ -1,0 +1,21 @@
+services:
+  minidialer-server:
+    image: ghcr.io/mmmray/minidialer:latest
+    command:
+      - split-http-server
+      - --host=0.0.0.0
+      - example.com:80
+
+  apache:
+    image: httpd:2.4
+    volumes:
+      - ./www/:/usr/local/apache2/htdocs/
+
+  minidialer-client:
+    image: ghcr.io/mmmray/minidialer:latest
+    ports:
+      - '3000:3000'
+    command:
+      - split-http
+      - --host=0.0.0.0
+      - http://apache:80
