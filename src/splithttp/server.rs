@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, Error};
-use async_channel::{bounded, Receiver, Sender};
 use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
@@ -12,9 +11,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use futures_util::StreamExt;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{
+    copy_bidirectional, duplex, split, AsyncRead, AsyncWrite, AsyncWriteExt, DuplexStream,
+    WriteHalf,
+};
 use tokio::net::TcpStream;
+use tokio_util::io::ReaderStream;
 
 use crate::SplitHttpServerCli;
 
@@ -40,88 +42,62 @@ pub async fn main(args: SplitHttpServerCli) -> Result<(), Error> {
 #[derive(Clone)]
 struct AppState {
     upstream: String,
-    upload_sockets: Arc<Mutex<HashMap<String, Sender<Vec<u8>>>>>,
+    upload_sockets: Arc<Mutex<HashMap<String, WriteHalf<DuplexStream>>>>,
 }
 
 async fn down_handler(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Response<Body> {
-    let (down_channel_sender, down_channel_receiver) = bounded(4096);
-    let (up_channel_sender, up_channel_receiver) = bounded(4096);
+    let (downstream_client, downstream_server) = duplex(120 * 1024);
+
+    let (client_downloader, client_uploader) = split(downstream_client);
 
     state
         .upload_sockets
         .lock()
         .unwrap()
-        .insert(session_id.clone(), up_channel_sender);
+        .insert(session_id.clone(), client_uploader);
 
     tokio::spawn(async move {
-        if let Err(e) =
-            forward_channels(state.clone(), up_channel_receiver, down_channel_sender).await
-        {
+        if let Err(e) = forward_channels(state.clone(), downstream_server).await {
             tracing::warn!("connection closed, error: {:?}", e);
         }
 
         state.upload_sockets.lock().unwrap().remove(&session_id);
     });
 
-    let body = Body::from_stream(down_channel_receiver.map(Ok::<_, Error>));
+    let body = Body::from_stream(ReaderStream::new(client_downloader));
     Response::builder()
         .header("X-Accel-Buffering", "no")
         .body(body)
         .unwrap()
 }
 
-async fn forward_channels(
-    state: AppState,
-    up_channel_receiver: Receiver<Vec<u8>>,
-    down_channel_sender: Sender<Vec<u8>>,
-) -> Result<(), Error> {
+async fn forward_channels<D>(state: AppState, mut downstream: D) -> Result<(), Error>
+where
+    D: AsyncRead + AsyncWrite + Unpin,
+{
     let mut upstream = TcpStream::connect(&state.upstream)
         .await
         .context("failed to connect to upstream")?;
-    let mut upstream_buffer = Box::new([0u8; 65536]);
 
-    loop {
-        tokio::select! {
-            upstream_read = upstream.read(&mut *upstream_buffer) => {
-                tracing::debug!("read from upstream");
-                let upstream_read = upstream_read.context("failed to read from upstream")?;
-
-                if upstream_read == 0 {
-                    tracing::debug!("upstream closed");
-                    return Ok(());
-                }
-
-                down_channel_sender.send(upstream_buffer[..upstream_read].to_vec()).await.context("failed to send to downstream")?;
-
-            }
-            downstream_read = up_channel_receiver.recv() => {
-                tracing::debug!("read from downstream");
-                if let Ok(downstream_read) = downstream_read {
-                    upstream.write_all(&downstream_read).await.context("failed to write to upstream")?;
-                } else {
-                    tracing::debug!("downstream closed");
-                    return Ok(());
-                }
-            }
-        }
-    }
+    copy_bidirectional(&mut downstream, &mut upstream).await?;
+    Ok(())
 }
 
 async fn up_handler(State(state): State<AppState>, Path(session_id): Path<String>, body: Bytes) {
     // on separate line, ensure that we don't hold the lock for too long
-    let sender = state
-        .upload_sockets
-        .lock()
-        .unwrap()
-        .get(&session_id)
-        .cloned();
+    let sender = state.upload_sockets.lock().unwrap().remove(&session_id);
 
-    if let Some(sender) = sender {
+    if let Some(mut sender) = sender {
         tracing::debug!("up_handler got {} bytes", body.len());
-        sender.send(body.to_vec()).await.unwrap();
+        sender.write_all(&body).await.unwrap();
+        state
+            .upload_sockets
+            .lock()
+            .unwrap()
+            .insert(session_id, sender);
     } else {
         tracing::debug!("could not find session id");
     }
