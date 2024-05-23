@@ -12,10 +12,15 @@ RUN cargo build --release && rm -rf src/
 COPY . ./
 RUN rm ./target/release/deps/minidialer* && cargo build --release
 
+RUN mkdir /curl-impersonate
+WORKDIR /curl-impersonate
+RUN curl -Lf https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz | tar xzf -
+
 FROM debian:bookworm
 
 RUN apt-get update && apt-get install -y libcurl4-openssl-dev
 
 COPY --from=builder /minidialer/target/release/minidialer /usr/local/bin/minidialer
+COPY --from=builder /curl-impersonate /curl-impersonate
 
 ENTRYPOINT ["minidialer"]
