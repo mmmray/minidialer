@@ -14,7 +14,7 @@ RUN rm ./target/release/deps/minidialer* && cargo build --release
 
 RUN mkdir /curl-impersonate
 WORKDIR /curl-impersonate
-RUN curl -Lf https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz | tar xzf -
+RUN curl -Lf https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/libcurl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz | tar xzf -
 
 FROM debian:bookworm
 
