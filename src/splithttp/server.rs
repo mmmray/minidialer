@@ -87,7 +87,7 @@ where
     // copy_bidirectional does not work here, because it hangs when one side is still open. we want
     // to terminate when either side closes.
 
-    let (res1, res2) = tokio::join! {
+    let (res1, res2) = tokio::select! {
         copy(&mut downstream_up, &mut upstream_up),
         copy(&mut upstream_down, &mut downstream_down),
     };
