@@ -10,6 +10,7 @@ services:
     image: httpd:2.4
     volumes:
       - ./www/:/usr/local/apache2/htdocs/
+      - ./httpd.conf:/usr/local/apache2/conf/httpd.conf
 
   minidialer-client:
     image: ghcr.io/mmmray/minidialer:latest
