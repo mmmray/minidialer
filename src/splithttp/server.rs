@@ -12,8 +12,7 @@ use axum::{
     Router,
 };
 use tokio::io::{
-    copy_bidirectional, duplex, split, AsyncRead, AsyncWrite, AsyncWriteExt, DuplexStream,
-    WriteHalf,
+    copy, duplex, split, AsyncRead, AsyncWrite, AsyncWriteExt, DuplexStream, WriteHalf,
 };
 use tokio::net::TcpStream;
 use tokio_util::io::ReaderStream;
@@ -61,7 +60,7 @@ async fn down_handler(
 
     tokio::spawn(async move {
         if let Err(e) = forward_channels(state.clone(), downstream_server).await {
-            tracing::warn!("connection closed, error: {:?}", e);
+            tracing::debug!("connection closed, error: {:?}", e);
         }
 
         state.upload_sockets.lock().unwrap().remove(&session_id);
@@ -74,15 +73,28 @@ async fn down_handler(
         .unwrap()
 }
 
-async fn forward_channels<D>(state: AppState, mut downstream: D) -> Result<(), Error>
+async fn forward_channels<D>(state: AppState, downstream: D) -> Result<(), Error>
 where
     D: AsyncRead + AsyncWrite + Unpin,
 {
-    let mut upstream = TcpStream::connect(&state.upstream)
+    let upstream = TcpStream::connect(&state.upstream)
         .await
         .context("failed to connect to upstream")?;
 
-    copy_bidirectional(&mut downstream, &mut upstream).await?;
+    let (mut downstream_up, mut downstream_down) = split(downstream);
+    let (mut upstream_down, mut upstream_up) = split(upstream);
+
+    // copy_bidirectional does not work here, because it hangs when one side is still open. we want
+    // to terminate when either side closes.
+
+    let (res1, res2) = tokio::join! {
+        copy(&mut downstream_up, &mut upstream_up),
+        copy(&mut upstream_down, &mut downstream_down),
+    };
+
+    res1?;
+    res2?;
+
     Ok(())
 }
 
