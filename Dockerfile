@@ -18,9 +18,9 @@ RUN curl -Lf https://github.com/lwthiker/curl-impersonate/releases/download/v0.6
 
 FROM debian:bookworm
 
-RUN apt-get update && apt-get install -y libcurl4-openssl-dev
+RUN apt-get update && apt-get install -y libcurl4-openssl-dev tini
 
 COPY --from=builder /minidialer/target/release/minidialer /usr/local/bin/minidialer
 COPY --from=builder /curl-impersonate /curl-impersonate
 
-ENTRYPOINT ["minidialer"]
+ENTRYPOINT ["tini", "--", "minidialer"]
