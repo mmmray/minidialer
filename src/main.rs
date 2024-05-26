@@ -136,7 +136,7 @@ struct SplitHttpCli {
     ///
     /// Large values may not pass certain firewalls, small payloads waste a lot of bandwidth to
     /// HTTP overhead.
-    #[arg(long, default_value_t = 122880)]
+    #[arg(long, default_value_t = 1048576)]
     upload_chunk_size: usize,
 
     #[command(flatten)]
