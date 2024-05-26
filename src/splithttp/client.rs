@@ -80,7 +80,8 @@ async fn process_connection(
         .get(format!("{download_upstream}/{session_id}/down"))
         .headers(download_headermap)
         .send()
-        .await?;
+        .await?
+        .error_for_status()?;
 
     let mut downstream_buffer = vec![0; upload_chunk_size].into_boxed_slice();
 
