@@ -1,5 +1,5 @@
-use std::{collections::HashMap, sync::Arc};
 use std::sync::RwLock;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Error;
 use axum::{
@@ -9,14 +9,11 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use tokio::net::TcpStream;
-use tokio::{
-    io::AsyncWriteExt,
-    sync::Mutex,
-};
-use tokio_util::io::ReaderStream;
 use futures::task::Poll;
 use futures::StreamExt;
+use tokio::net::TcpStream;
+use tokio::{io::AsyncWriteExt, sync::Mutex};
+use tokio_util::io::ReaderStream;
 
 use crate::SplitHttpServerCli;
 
@@ -95,7 +92,12 @@ impl Drop for RemoveUploadSocket {
 
 async fn up_handler(State(state): State<AppState>, Path(session_id): Path<String>, body: Bytes) {
     // on separate line, ensure that we don't hold the lock for too long
-    let sender = state.upload_sockets.read().unwrap().get(&session_id).cloned();
+    let sender = state
+        .upload_sockets
+        .read()
+        .unwrap()
+        .get(&session_id)
+        .cloned();
 
     tracing::debug!("up_handler got {} bytes", body.len());
 
