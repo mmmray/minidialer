@@ -77,9 +77,11 @@ async fn forward_channels<D>(state: AppState, downstream: D) -> Result<(), Error
 where
     D: AsyncRead + AsyncWrite + Unpin,
 {
-    let upstream = TcpStream::connect(&state.upstream)
+    let mut upstream = TcpStream::connect(&state.upstream)
         .await
         .context("failed to connect to upstream")?;
+
+    upstream.set_nodelay(true).unwrap();
 
     let (mut downstream_up, mut downstream_down) = split(downstream);
     let (mut upstream_down, mut upstream_up) = split(upstream);

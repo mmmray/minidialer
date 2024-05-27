@@ -22,6 +22,8 @@ pub async fn main(args: SplitHttpCli) -> Result<(), Error> {
     loop {
         let (socket, _) = listener.accept().await.unwrap();
 
+        socket.set_nodelay(true).unwrap();
+
         let upstream_client = upstream_client.clone();
         let download_upstream = args
             .download_upstream
