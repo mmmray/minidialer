@@ -1,9 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Error};
+use anyhow::Error;
 use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
@@ -11,10 +8,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use tokio::io::{
-    copy, duplex, split, AsyncRead, AsyncWrite, AsyncWriteExt, DuplexStream, WriteHalf,
-};
+use futures::StreamExt;
 use tokio::net::TcpStream;
+use tokio::{
+    io::AsyncWriteExt,
+    sync::{Mutex, RwLock},
+};
 use tokio_util::io::ReaderStream;
 
 use crate::SplitHttpServerCli;
@@ -41,74 +40,58 @@ pub async fn main(args: SplitHttpServerCli) -> Result<(), Error> {
 #[derive(Clone)]
 struct AppState {
     upstream: String,
-    upload_sockets: Arc<Mutex<HashMap<String, WriteHalf<DuplexStream>>>>,
+    upload_sockets: Arc<RwLock<HashMap<String, Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>>>>,
 }
 
 async fn down_handler(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Response<Body> {
-    let (downstream_client, downstream_server) = duplex(120 * 1024);
+    let upstream = match TcpStream::connect(&state.upstream).await {
+        Ok(x) => x,
+        Err(e) => {
+            tracing::warn!("failed to connect to upstream: {e}");
+            return Response::builder()
+                .status(502)
+                .body(Body::from(()))
+                .unwrap();
+        }
+    };
 
-    let (client_downloader, client_uploader) = split(downstream_client);
+    upstream.set_nodelay(true).unwrap();
+
+    let (upstream_down, upstream_up) = upstream.into_split();
 
     state
         .upload_sockets
-        .lock()
-        .unwrap()
-        .insert(session_id.clone(), client_uploader);
+        .write()
+        .await
+        .insert(session_id.clone(), Arc::new(Mutex::new(upstream_up)));
 
-    tokio::spawn(async move {
-        if let Err(e) = forward_channels(state.clone(), downstream_server).await {
-            tracing::debug!("connection closed, error: {:?}", e);
-        }
+    let body_stream = ReaderStream::new(upstream_down).chain(futures::stream::once(async move {
+        state.upload_sockets.write().await.remove(&session_id);
+        Ok(Bytes::default())
+    }));
+    let body = Body::from_stream(body_stream);
 
-        state.upload_sockets.lock().unwrap().remove(&session_id);
-    });
-
-    let body = Body::from_stream(ReaderStream::new(client_downloader));
     Response::builder()
         .header("X-Accel-Buffering", "no")
         .body(body)
         .unwrap()
 }
 
-async fn forward_channels<D>(state: AppState, downstream: D) -> Result<(), Error>
-where
-    D: AsyncRead + AsyncWrite + Unpin,
-{
-    let mut upstream = TcpStream::connect(&state.upstream)
-        .await
-        .context("failed to connect to upstream")?;
-
-    upstream.set_nodelay(true).unwrap();
-
-    let (mut downstream_up, mut downstream_down) = split(downstream);
-    let (mut upstream_down, mut upstream_up) = split(upstream);
-
-    // copy_bidirectional does not work here, because it hangs when one side is still open. we want
-    // to terminate when either side closes.
-
-    tokio::select! {
-        _ = copy(&mut downstream_up, &mut upstream_up) => {}
-        _ = copy(&mut upstream_down, &mut downstream_down) => {}
-    };
-
-    Ok(())
-}
-
 async fn up_handler(State(state): State<AppState>, Path(session_id): Path<String>, body: Bytes) {
     // on separate line, ensure that we don't hold the lock for too long
-    let sender = state.upload_sockets.lock().unwrap().remove(&session_id);
+    let sender = state.upload_sockets.read().await.get(&session_id).cloned();
 
-    if let Some(mut sender) = sender {
-        tracing::debug!("up_handler got {} bytes", body.len());
-        sender.write_all(&body).await.unwrap();
-        state
-            .upload_sockets
-            .lock()
-            .unwrap()
-            .insert(session_id, sender);
+    tracing::debug!("up_handler got {} bytes", body.len());
+
+    if let Some(sender) = sender {
+        let mut sender = sender.lock().await;
+
+        if let Err(e) = sender.write_all(&body).await {
+            tracing::debug!("failed to write to closed upstream: {e}");
+        }
     } else {
         tracing::debug!("could not find session id");
     }
