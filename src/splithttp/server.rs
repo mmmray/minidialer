@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
+use std::sync::RwLock;
 
 use anyhow::Error;
 use axum::{
@@ -8,13 +9,14 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use futures::StreamExt;
 use tokio::net::TcpStream;
 use tokio::{
     io::AsyncWriteExt,
-    sync::{Mutex, RwLock},
+    sync::Mutex,
 };
 use tokio_util::io::ReaderStream;
+use futures::task::Poll;
+use futures::StreamExt;
 
 use crate::SplitHttpServerCli;
 
@@ -65,13 +67,16 @@ async fn down_handler(
     state
         .upload_sockets
         .write()
-        .await
+        .unwrap()
         .insert(session_id.clone(), Arc::new(Mutex::new(upstream_up)));
 
-    let body_stream = ReaderStream::new(upstream_down).chain(futures::stream::once(async move {
-        state.upload_sockets.write().await.remove(&session_id);
-        Ok(Bytes::default())
+    let mut guard = Some(RemoveUploadSocket(state, session_id));
+
+    let body_stream = ReaderStream::new(upstream_down).chain(futures::stream::poll_fn(move |_| {
+        let _dropped = guard.take();
+        Poll::Ready(None)
     }));
+
     let body = Body::from_stream(body_stream);
 
     Response::builder()
@@ -80,9 +85,17 @@ async fn down_handler(
         .unwrap()
 }
 
+struct RemoveUploadSocket(AppState, String);
+
+impl Drop for RemoveUploadSocket {
+    fn drop(&mut self) {
+        self.0.upload_sockets.write().unwrap().remove(&self.1);
+    }
+}
+
 async fn up_handler(State(state): State<AppState>, Path(session_id): Path<String>, body: Bytes) {
     // on separate line, ensure that we don't hold the lock for too long
-    let sender = state.upload_sockets.read().await.get(&session_id).cloned();
+    let sender = state.upload_sockets.read().unwrap().get(&session_id).cloned();
 
     tracing::debug!("up_handler got {} bytes", body.len());
 
