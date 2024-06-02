@@ -5,6 +5,7 @@ use clap::{Args, Parser, Subcommand};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
 mod browser;
+mod cdntest;
 mod command;
 #[cfg(feature = "curl")]
 mod curl;
@@ -29,6 +30,7 @@ enum CliSubcommand {
     TcpFragment(TcpFragmentCli),
     SplitHttp(SplitHttpCli),
     SplitHttpServer(SplitHttpServerCli),
+    CdnTest(CdnTestCli),
 }
 
 #[derive(Args, Debug)]
@@ -155,6 +157,12 @@ struct SplitHttpServerCli {
 }
 
 #[derive(Args, Debug, Clone)]
+struct CdnTestCli {
+    #[command(flatten)]
+    common: CliCommon,
+}
+
+#[derive(Args, Debug, Clone)]
 struct CliCommon {
     /// which local host to listen to
     #[arg(long, default_value = "127.0.0.1")]
@@ -202,6 +210,9 @@ async fn main() -> Result<(), Error> {
         }
         CliSubcommand::SplitHttpServer(args) => {
             splithttp::server::main(args).await?;
+        }
+        CliSubcommand::CdnTest(args) => {
+            cdntest::main(args).await?;
         }
     }
 

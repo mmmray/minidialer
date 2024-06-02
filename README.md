@@ -200,6 +200,10 @@ nc -l 8080 <-> split-http-server <-> split-http <-> nc client
 
 See [split-http example](./examples/split-http/) for a more realistic setup.
 
+## CDN test
+
+A set of HTTP endpoints to test CDN behavior are available under `minidialer
+cdn-test`.
 
 ## Future ideas
 
