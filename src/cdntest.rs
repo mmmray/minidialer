@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use anyhow::Error;
-use axum::{body::Body, http::Response, routing::get, Router};
+use axum::{body::Body, extract::Query, http::Response, routing::get, Router};
+use serde::Deserialize;
 use tokio::{
     io::{duplex, AsyncWriteExt},
     time::sleep,
@@ -21,17 +22,28 @@ pub async fn main(args: CdnTestCli) -> Result<(), Error> {
     Ok(())
 }
 
-async fn chunked_pong() -> Response<Body> {
+#[derive(Deserialize)]
+struct Params {
+    content_type: Option<String>,
+}
+
+async fn chunked_pong(Query(params): Query<Params>) -> Response<Body> {
     let (read, mut write) = duplex(1024);
 
     tokio::spawn(async move {
         sleep(Duration::from_secs(3)).await;
-        while write.write(b"x\n").await.is_ok() {
+        let mut i = 0;
+        while write.write(format!("{}<br>\n", i).as_bytes()).await.is_ok() {
             sleep(Duration::from_secs(1)).await;
+            i += 1;
         }
     });
 
     Response::builder()
+        .header(
+            "Content-Type",
+            params.content_type.unwrap_or("text/html".to_owned()),
+        )
         .body(Body::from_stream(ReaderStream::new(read)))
         .unwrap()
 }
