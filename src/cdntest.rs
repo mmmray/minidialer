@@ -25,6 +25,7 @@ pub async fn main(args: CdnTestCli) -> Result<(), Error> {
 #[derive(Deserialize)]
 struct Params {
     content_type: Option<String>,
+    sleep_ms: Option<u64>,
 }
 
 async fn chunked_pong(Query(params): Query<Params>) -> Response<Body> {
@@ -33,8 +34,16 @@ async fn chunked_pong(Query(params): Query<Params>) -> Response<Body> {
     tokio::spawn(async move {
         sleep(Duration::from_secs(3)).await;
         let mut i = 0;
-        while write.write(format!("{}<br>\n", i).as_bytes()).await.is_ok() {
-            sleep(Duration::from_secs(1)).await;
+        loop {
+            if write
+                .write(format!("{}<br>\n", i).as_bytes())
+                .await
+                .is_err()
+            {
+                break;
+            }
+
+            sleep(Duration::from_millis(params.sleep_ms.unwrap_or(1000))).await;
             i += 1;
         }
     });
