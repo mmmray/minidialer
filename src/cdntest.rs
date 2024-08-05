@@ -24,6 +24,7 @@ pub async fn main(args: CdnTestCli) -> Result<(), Error> {
 
 #[derive(Deserialize)]
 struct Params {
+    reflect_header: Option<String>,
     content_type: Option<String>,
     sleep_ms: Option<u64>,
 }
@@ -48,11 +49,16 @@ async fn chunked_pong(Query(params): Query<Params>) -> Response<Body> {
         }
     });
 
-    Response::builder()
-        .header(
-            "Content-Type",
-            params.content_type.unwrap_or("text/html".to_owned()),
-        )
+    let mut builder = Response::builder().header(
+        "Content-Type",
+        params.content_type.unwrap_or("text/html".to_owned()),
+    );
+
+    if let Some(ref header_key) = params.reflect_header {
+        builder = builder.header(header_key, "yes-forwarded");
+    }
+
+    builder
         .body(Body::from_stream(ReaderStream::new(read)))
         .unwrap()
 }
