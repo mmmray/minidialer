@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::sync::RwLock;
 use std::{collections::HashMap, sync::Arc};
 
@@ -24,8 +26,8 @@ pub async fn main(args: SplitHttpServerCli) -> Result<(), Error> {
     };
 
     let app = Router::new()
-        .route("/:session/down", get(down_handler))
-        .route("/:session/up", post(up_handler))
+        .route("/:session", get(down_handler))
+        .route("/:session/:seq", post(up_handler))
         .with_state(state);
 
     let addr = format!("{}:{}", args.common.host, args.common.port);
@@ -39,8 +41,39 @@ pub async fn main(args: SplitHttpServerCli) -> Result<(), Error> {
 #[derive(Clone)]
 struct AppState {
     upstream: String,
-    upload_sockets: Arc<RwLock<HashMap<String, Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>>>>,
+    upload_sockets: Arc<RwLock<HashMap<String, Arc<Mutex<UploadSocket>>>>>,
 }
+
+struct UploadSocket {
+    raw_writer: tokio::net::tcp::OwnedWriteHalf,
+    next_seq: u64,
+    packet_queue: BinaryHeap<Packet>,
+}
+
+struct Packet {
+    data: Bytes,
+    seq: u64,
+}
+
+impl PartialOrd for Packet {
+    fn partial_cmp(&self, other: &Packet) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Packet {
+    fn cmp(&self, other: &Packet) -> Ordering {
+        self.seq.cmp(&other.seq)
+    }
+}
+
+impl PartialEq for Packet {
+    fn eq(&self, other: &Packet) -> bool {
+        self.seq == other.seq
+    }
+}
+
+impl Eq for Packet {}
 
 async fn down_handler(
     State(state): State<AppState>,
@@ -61,11 +94,17 @@ async fn down_handler(
 
     let (upstream_down, upstream_up) = upstream.into_split();
 
+    let upload_socket = UploadSocket {
+        raw_writer: upstream_up,
+        next_seq: 0,
+        packet_queue: BinaryHeap::new(),
+    };
+
     state
         .upload_sockets
         .write()
         .unwrap()
-        .insert(session_id.clone(), Arc::new(Mutex::new(upstream_up)));
+        .insert(session_id.clone(), Arc::new(Mutex::new(upload_socket)));
 
     let mut guard = Some(RemoveUploadSocket(state, session_id));
 
@@ -78,6 +117,7 @@ async fn down_handler(
 
     Response::builder()
         .header("X-Accel-Buffering", "no")
+        .header("Content-Type", "text/event-stream")
         .body(body)
         .unwrap()
 }
@@ -90,7 +130,11 @@ impl Drop for RemoveUploadSocket {
     }
 }
 
-async fn up_handler(State(state): State<AppState>, Path(session_id): Path<String>, body: Bytes) {
+async fn up_handler(
+    State(state): State<AppState>,
+    Path((session_id, seq)): Path<(String, u64)>,
+    body: Bytes,
+) {
     // on separate line, ensure that we don't hold the lock for too long
     let sender = state
         .upload_sockets
@@ -101,13 +145,32 @@ async fn up_handler(State(state): State<AppState>, Path(session_id): Path<String
 
     tracing::debug!("up_handler got {} bytes", body.len());
 
-    if let Some(sender) = sender {
-        let mut sender = sender.lock().await;
-
-        if let Err(e) = sender.write_all(&body).await {
-            tracing::debug!("failed to write to closed upstream: {e}");
-        }
-    } else {
+    let Some(sender) = sender else {
         tracing::debug!("could not find session id");
+        return;
+    };
+
+    let mut upload_socket = sender.lock().await;
+
+    upload_socket.packet_queue.push(Packet { data: body, seq });
+
+    loop {
+        {
+            let Some(peeked) = upload_socket.packet_queue.peek() else {
+                break;
+            };
+            if peeked.seq > upload_socket.next_seq {
+                break;
+            }
+        }
+
+        let packet = upload_socket.packet_queue.pop().unwrap();
+        if packet.seq == upload_socket.next_seq {
+            if let Err(e) = upload_socket.raw_writer.write_all(&packet.data).await {
+                tracing::debug!("failed to write to closed upstream: {e}");
+            }
+        }
+
+        upload_socket.next_seq = packet.seq + 1;
     }
 }

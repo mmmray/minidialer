@@ -68,7 +68,7 @@ fn parse_header_args(cli: &[String]) -> HeaderMap {
 }
 
 async fn process_connection(
-    mut downstream: TcpStream,
+    downstream: TcpStream,
     upstream_client: reqwest::Client,
     headermap: HeaderMap,
     download_headermap: HeaderMap,
@@ -78,45 +78,70 @@ async fn process_connection(
 ) -> Result<(), Error> {
     let session_id = uuid::Uuid::new_v4();
 
-    let mut downloader = upstream_client
-        .get(format!("{download_upstream}/{session_id}/down"))
-        .headers(download_headermap)
-        .send()
-        .await?
-        .error_for_status()?;
+    let (mut downstream_read, mut downstream_write) = downstream.into_split();
 
-    let mut downstream_buffer = vec![0; upload_chunk_size].into_boxed_slice();
+    let downloader = async {
+        let mut download = upstream_client
+            .get(format!("{download_upstream}/{session_id}"))
+            .headers(download_headermap)
+            .send()
+            .await?
+            .error_for_status()?;
 
-    loop {
-        tokio::select! {
-            upstream_read = downloader.chunk() => {
-                let upstream_read = upstream_read.context("failed to read from upstream")?;
+        loop {
+            let upstream_read = download
+                .chunk()
+                .await
+                .context("failed to read from upstream")?;
 
-                if let Some(upstream_read) = upstream_read {
-                    downstream.write_all(&*upstream_read).await.context("failed to write to downstream")?;
-                } else {
-                    tracing::debug!("empty read from upstream");
-                    return Ok(());
-                }
-            }
-
-            downstream_read = downstream.read(&mut *downstream_buffer) => {
-                let downstream_read = downstream_read.context("failed to read from downstream")?;
-
-                if downstream_read == 0 {
-                    tracing::debug!("empty read from downstream");
-                    return Ok(());
-                }
-
-                let response = upstream_client
-                    .post(format!("{upstream}/{session_id}/up"))
-                    .headers(headermap.clone())
-                    .body(downstream_buffer[..downstream_read].to_vec())
-                    .send()
+            if let Some(upstream_read) = upstream_read {
+                downstream_write
+                    .write_all(&*upstream_read)
                     .await
-                    .context("failed to write to upstream")?;
-                response.error_for_status()?;
+                    .context("failed to write to downstream")?;
+            } else {
+                tracing::debug!("empty read from upstream");
+                return Ok::<(), Error>(());
             }
         }
+    };
+
+    let uploader = async {
+        let mut downstream_buffer = vec![0; upload_chunk_size].into_boxed_slice();
+        let mut seq = 0u64;
+        loop {
+            let downstream_read = downstream_read
+                .read(&mut *downstream_buffer)
+                .await
+                .context("failed to read from downstream")?;
+
+            if downstream_read == 0 {
+                tracing::debug!("empty read from downstream");
+                return Ok::<(), Error>(());
+            }
+
+            let response = upstream_client
+                .post(format!("{upstream}/{session_id}/{seq}"))
+                .headers(headermap.clone())
+                .body(downstream_buffer[..downstream_read].to_vec())
+                .send()
+                .await
+                .context("failed to write to upstream")?;
+            response.error_for_status()?;
+
+            seq += 1;
+        }
+    };
+
+    tokio::select! {
+        res1 = downloader => {
+            res1?;
+        }
+
+        res2 = uploader => {
+            res2?;
+        }
     }
+
+    Ok(())
 }
