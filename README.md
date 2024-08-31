@@ -1,7 +1,12 @@
 # minidialer
 
-A proxy application for obfuscating TLS fingerprints in multiple ways. Designed
-for use with v2ray variants.
+A dumpster of ideas for educational purposes:
+
+* Browser dialer
+* Obfuscation of TLS fingerprints (curl dialers)
+* Some fragment idea that never worked out
+* SplitHTTP prototype
+* Dummy server for testing CDN functionality
 
 **This is an experiment and has not been deployed in the field.**
 
@@ -21,11 +26,14 @@ Or install with `cargo install --git https://github.com/mmmray/minidialer`
 Open a webpage in a browser to use that browser's TLS stack. Only works for
 websocket-based v2ray configs.
 
-The browser dialer is very similar to Xray's [Browser Dialer](https://xtls.github.io/en/config/features/browser_dialer.html), and v2fly's [Browser Forwarder](https://www.v2fly.org/en_US/v5/config/service/browser.html)
+The browser dialer is very similar to Xray's [Browser
+Dialer](https://xtls.github.io/en/config/features/browser_dialer.html), and
+v2fly's [Browser
+Forwarder](https://www.v2fly.org/en_US/v5/config/service/browser.html)
 
-In fact the code on the client-side ended up very similar to Xray, however for
-some reason minidialer seems to have much higher throughput on `speedtest.net`
-than xray's dialer. I have not tested v2fly.
+This thing used to be faster than Xray, but the [performance
+improvements](https://github.com/XTLS/Xray-core/commit/eb4f9429e62b32aa47797873157ea10872b5aafc)
+have been merged into Xray already.
 
 Requirements:
 
@@ -180,8 +188,7 @@ The "split http" tunnel is a tool to proxy TCP streams through CDNs without
 WebSocket support. The only requirement are working streaming HTTP responses.
 Uploads are implemented as separate HTTP requests.
 
-The proxied TCP session is terminated when the streaming HTTP response is
-terminated.
+This tunnel was the original prototype for [Xray's SplitHTTP](https://xtls.github.io/en/config/transports/splithttp.html), and, while less well-maintained, should be compatible with Xray.
 
 For usage, run each command in a separate terminal:
 
