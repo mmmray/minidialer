@@ -180,8 +180,8 @@ async fn up_handler(
             if let Err(e) = upload_socket.raw_writer.write_all(&packet.data).await {
                 tracing::debug!("failed to write to closed upstream: {e}");
             }
-        }
 
-        upload_socket.next_seq = packet.seq + 1;
+            upload_socket.next_seq = packet.seq + 1;
+        }
     }
 }
