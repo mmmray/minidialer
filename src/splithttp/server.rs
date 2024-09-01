@@ -6,13 +6,14 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Error;
 use axum::{
     body::{Body, Bytes},
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::Response,
     routing::{get, post},
     Router,
 };
 use futures::task::Poll;
 use futures::StreamExt;
+use serde::Deserialize;
 use tokio::net::TcpStream;
 use tokio::{io::AsyncWriteExt, sync::Mutex};
 use tokio_util::io::ReaderStream;
@@ -75,9 +76,15 @@ impl PartialEq for Packet {
 
 impl Eq for Packet {}
 
+#[derive(Deserialize)]
+struct Params {
+    x_padding: Option<String>,
+}
+
 async fn down_handler(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
+    Query(params): Query<Params>,
 ) -> Response<Body> {
     let upstream = match TcpStream::connect(&state.upstream).await {
         Ok(x) => x,
@@ -113,7 +120,11 @@ async fn down_handler(
         Poll::Ready(None)
     }));
 
-    let body = Body::from_stream(body_stream);
+    let body = if params.x_padding.is_some() {
+        Body::from_stream(body_stream)
+    } else {
+        Body::from_stream(futures::stream::once(async { Ok(Bytes::from("ok")) }).chain(body_stream))
+    };
 
     Response::builder()
         .header("X-Accel-Buffering", "no")

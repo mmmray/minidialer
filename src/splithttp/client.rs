@@ -81,8 +81,10 @@ async fn process_connection(
     let (mut downstream_read, mut downstream_write) = downstream.into_split();
 
     let downloader = async {
+        // some x_padding parameter is needed for compatibility with https://github.com/XTLS/Xray-core/blob/6baad79f9881ee2cf75bdc825b3e2e92b289477a/transport/internet/splithttp/hub.go#L199
+        // TODO add real padding
         let mut download = upstream_client
-            .get(format!("{download_upstream}/{session_id}"))
+            .get(format!("{download_upstream}/{session_id}?x_padding=0"))
             .headers(download_headermap)
             .send()
             .await?
