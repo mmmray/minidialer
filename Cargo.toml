@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.81"
 async-channel = "2.2.0"
-axum = { version = "0.7.5", features = ["query", "ws", "tokio", "tracing", "http1", "tower-log"], default-features = false }
+axum = { version = "0.7.5", features = ["query", "ws", "tokio", "tracing", "http1", "tower-log", "macros"], default-features = false }
 clap = { version = "4.5.4", features = ["derive"] }
 futures = "0.3.30"
 libc = "0.2.153"

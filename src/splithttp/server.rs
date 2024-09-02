@@ -6,6 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Error;
 use axum::{
     body::{Body, Bytes},
+    debug_handler,
     extract::{Path, Query, State},
     http::Response,
     routing::{get, post},
@@ -45,7 +46,44 @@ struct AppState {
     upload_sockets: Arc<RwLock<HashMap<String, Arc<Mutex<UploadSocket>>>>>,
 }
 
+impl AppState {
+    async fn upsert_session(self, session_id: String) -> Result<Arc<Mutex<UploadSocket>>, ()> {
+        if let Some(session) = self.upload_sockets.read().unwrap().get(&session_id) {
+            return Ok(session.clone());
+        }
+
+        let upstream = match TcpStream::connect(&self.upstream).await {
+            Ok(x) => x,
+            Err(e) => {
+                tracing::warn!("failed to connect to upstream: {e}");
+                return Err(());
+            }
+        };
+
+        upstream.set_nodelay(true).unwrap();
+        let (upstream_down, upstream_up) = upstream.into_split();
+        let upload_socket = UploadSocket {
+            raw_reader: Some(upstream_down),
+            raw_writer: upstream_up,
+            next_seq: 0,
+            packet_queue: BinaryHeap::new(),
+        };
+
+        let upload = Arc::new(Mutex::new(upload_socket));
+        // gross way to deal with race condition: if since the last time read() was called, the
+        // upload queue was inserted, we just use that one
+        Ok(self
+            .upload_sockets
+            .write()
+            .unwrap()
+            .insert(session_id, upload.clone())
+            .unwrap_or(upload))
+    }
+}
+
 struct UploadSocket {
+    // taken by download handler
+    raw_reader: Option<tokio::net::tcp::OwnedReadHalf>,
     raw_writer: tokio::net::tcp::OwnedWriteHalf,
     next_seq: u64,
     packet_queue: BinaryHeap<Packet>,
@@ -64,7 +102,8 @@ impl PartialOrd for Packet {
 
 impl Ord for Packet {
     fn cmp(&self, other: &Packet) -> Ordering {
-        self.seq.cmp(&other.seq)
+        // inverse order: smallest packets should go first in the heap
+        self.seq.cmp(&other.seq).reverse()
     }
 }
 
@@ -81,44 +120,34 @@ struct Params {
     x_padding: Option<String>,
 }
 
+#[debug_handler]
 async fn down_handler(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
     Query(params): Query<Params>,
 ) -> Response<Body> {
-    let upstream = match TcpStream::connect(&state.upstream).await {
-        Ok(x) => x,
-        Err(e) => {
-            tracing::warn!("failed to connect to upstream: {e}");
-            return Response::builder()
-                .status(502)
-                .body(Body::from(()))
-                .unwrap();
-        }
+    let Ok(upload_socket) = state.clone().upsert_session(session_id.clone()).await else {
+        return Response::builder()
+            .status(502)
+            .body(Body::from(()))
+            .unwrap();
     };
 
-    upstream.set_nodelay(true).unwrap();
-
-    let (upstream_down, upstream_up) = upstream.into_split();
-
-    let upload_socket = UploadSocket {
-        raw_writer: upstream_up,
-        next_seq: 0,
-        packet_queue: BinaryHeap::new(),
+    let Some(download_reader) = upload_socket.lock().await.raw_reader.take() else {
+        tracing::warn!("opened download twice");
+        return Response::builder()
+            .status(502)
+            .body(Body::from(()))
+            .unwrap();
     };
-
-    state
-        .upload_sockets
-        .write()
-        .unwrap()
-        .insert(session_id.clone(), Arc::new(Mutex::new(upload_socket)));
 
     let mut guard = Some(RemoveUploadSocket(state, session_id));
 
-    let body_stream = ReaderStream::new(upstream_down).chain(futures::stream::poll_fn(move |_| {
-        let _dropped = guard.take();
-        Poll::Ready(None)
-    }));
+    let body_stream =
+        ReaderStream::new(download_reader).chain(futures::stream::poll_fn(move |_| {
+            let _dropped = guard.take();
+            Poll::Ready(None)
+        }));
 
     let body = if params.x_padding.is_some() {
         Body::from_stream(body_stream)
@@ -141,27 +170,22 @@ impl Drop for RemoveUploadSocket {
     }
 }
 
+#[debug_handler]
 async fn up_handler(
     State(state): State<AppState>,
     Path((session_id, seq)): Path<(String, u64)>,
     body: Bytes,
-) {
-    // on separate line, ensure that we don't hold the lock for too long
-    let sender = state
-        .upload_sockets
-        .read()
-        .unwrap()
-        .get(&session_id)
-        .cloned();
-
+) -> Response<Body> {
     tracing::debug!("up_handler got {} bytes", body.len());
 
-    let Some(sender) = sender else {
-        tracing::debug!("could not find session id");
-        return;
+    let Ok(upload_socket) = state.upsert_session(session_id).await else {
+        return Response::builder()
+            .status(502)
+            .body(Body::from(()))
+            .unwrap();
     };
 
-    let mut upload_socket = sender.lock().await;
+    let mut upload_socket = upload_socket.lock().await;
 
     upload_socket.packet_queue.push(Packet { data: body, seq });
 
@@ -170,6 +194,7 @@ async fn up_handler(
             let Some(peeked) = upload_socket.packet_queue.peek() else {
                 break;
             };
+            tracing::debug!("peeking packet {}", peeked.seq);
             if peeked.seq > upload_socket.next_seq {
                 break;
             }
@@ -177,11 +202,21 @@ async fn up_handler(
 
         let packet = upload_socket.packet_queue.pop().unwrap();
         if packet.seq == upload_socket.next_seq {
+            tracing::debug!("sending packet {}", packet.seq);
             if let Err(e) = upload_socket.raw_writer.write_all(&packet.data).await {
                 tracing::debug!("failed to write to closed upstream: {e}");
+                return Response::builder()
+                    .status(502)
+                    .body(Body::from(()))
+                    .unwrap();
             }
 
-            upload_socket.next_seq = packet.seq + 1;
+            upload_socket.next_seq += 1;
         }
     }
+
+    Response::builder()
+        .status(200)
+        .body(Body::from(()))
+        .unwrap()
 }
